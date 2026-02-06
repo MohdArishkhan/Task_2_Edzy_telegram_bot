@@ -1,44 +1,31 @@
-import cron from 'node-cron';
-import UserService from './UserService';
-import JokeService from './JokeService';
+import AgendaScheduler from './AgendaScheduler';
 import TelegramBotService from './TelegramBotService';
 
-interface ScheduledJob {
-  chatId: number;
-  job: cron.ScheduledTask;
-}
-
 class JokeScheduler {
-  private scheduledJobs: Map<number, ScheduledJob> = new Map();
-  private botService: TelegramBotService | null;
+  private agendaScheduler: AgendaScheduler;
 
-  constructor(botService?: TelegramBotService) {
-    this.botService = botService || null;
+  constructor() {
+    this.agendaScheduler = new AgendaScheduler();
   }
 
   /**
    * Set the bot service (for circular dependency resolution)
    */
   setBotService(botService: TelegramBotService): void {
-    this.botService = botService;
+    this.agendaScheduler.setBotService(botService);
   }
 
   /**
-   * Start the joke scheduler - schedules all enabled users
+   * Start the joke scheduler - initializes Agenda and schedules all enabled users
    */
   async start(): Promise<void> {
     try {
-      const enabledUsers = await UserService.getAllEnabledUsers();
+      // Initialize Agenda with MongoDB
+      await this.agendaScheduler.initialize();
 
-      console.log(
-        `[JokeScheduler] Starting scheduler for ${enabledUsers.length} users`
-      );
-
-      for (const user of enabledUsers) {
-        this.scheduleUserJokes(user.chatId, user.frequency);
-      }
-
-      console.log('[JokeScheduler] Scheduler started successfully');
+      // Load and schedule all enabled users
+      await this.agendaScheduler.start();
+      // Scheduler started successfully with Agenda
     } catch (error) {
       console.error('[JokeScheduler] Error starting scheduler:', error);
       throw error;
@@ -47,31 +34,13 @@ class JokeScheduler {
 
   /**
    * Schedule jokes for a specific user
+   * Uses persistent MongoDB-backed Agenda
    * @param chatId - User's chat ID
    * @param frequency - Minutes between jokes
    */
-  scheduleUserJokes(chatId: number, frequency: number): void {
-    // Cancel existing job if any
-    if (this.scheduledJobs.has(chatId)) {
-      this.cancelUserSchedule(chatId);
-    }
-
-    // Create cron expression: every n minutes
-    // Cron format: minute hour day month weekday
-    const cronExpression = `*/${frequency} * * * *`;
-
+  async scheduleUserJokes(chatId: number, frequency: number): Promise<void> {
     try {
-      const job = cron.schedule(cronExpression, () => {
-        console.log(`[JokeScheduler] ⏰ Executing cron job for user ${chatId} - delivering joke...`);
-        this.deliverJoke(chatId);
-      });
-
-      this.scheduledJobs.set(chatId, { chatId, job });
-
-      console.log(
-        `[JokeScheduler] ✅ Scheduled jokes for user ${chatId} every ${frequency} minute(s)`
-      );
-      console.log(`[JokeScheduler] 📅 Cron expression: "${cronExpression}"`);
+      await this.agendaScheduler.scheduleUserJokes(chatId, frequency);
     } catch (error) {
       console.error(
         `[JokeScheduler] Error scheduling jokes for user ${chatId}:`,
@@ -83,62 +52,31 @@ class JokeScheduler {
 
   /**
    * Cancel joke schedule for a specific user
+   * Removes persistent job from MongoDB
    * @param chatId - User's chat ID
    */
-  cancelUserSchedule(chatId: number): void {
-    const scheduled = this.scheduledJobs.get(chatId);
-
-    if (scheduled) {
-      scheduled.job.stop();
-      this.scheduledJobs.delete(chatId);
-      console.log(`[JokeScheduler] Cancelled jokes for user ${chatId}`);
+  async cancelUserSchedule(chatId: number): Promise<void> {
+    try {
+      await this.agendaScheduler.cancelUserSchedule(chatId);
+    } catch (error) {
+      console.error(
+        `[JokeScheduler] Error cancelling schedule for user ${chatId}:`,
+        error
+      );
+      throw error;
     }
   }
 
   /**
-   * Test deliver a joke immediately (without waiting for cron)
+   * Test deliver a joke immediately (without waiting for scheduled time)
    * @param chatId - User's chat ID
    */
   async testDeliverJoke(chatId: number): Promise<void> {
-    console.log(`[JokeScheduler] 🧪 TEST MODE: Attempting to deliver test joke to user ${chatId}...`);
-    await this.deliverJoke(chatId);
-  }
-
-  /**
-   * Deliver a joke to a user
-   * @param chatId - User's chat ID
-   */
-  private async deliverJoke(chatId: number): Promise<void> {
     try {
-      if (!this.botService) {
-        console.error('[JokeScheduler] ❌ Bot service not initialized');
-        return;
-      }
-
-      console.log(`[JokeScheduler] 📝 Fetching joke for user ${chatId}...`);
-      const user = await UserService.getUserByChatId(chatId);
-
-      // Check if user exists and is still enabled
-      if (!user || !user.isEnabled) {
-        console.log(`[JokeScheduler] ⚠️  User ${chatId} not found or disabled, cancelling schedule`);
-        this.cancelUserSchedule(chatId);
-        return;
-      }
-
-      // Fetch and send joke
-      console.log(`[JokeScheduler] 🎭 Getting formatted joke...`);
-      const joke = await JokeService.getFormattedJoke();
-      console.log(`[JokeScheduler] 📤 Sending joke to user ${chatId}...`);
-      await this.botService.sendJoke(chatId, joke);
-
-      // Update last sent timestamp
-      await UserService.updateLastSentAt(chatId);
-      console.log(`[JokeScheduler] ✅ Joke successfully delivered to user ${chatId}`);
+      await this.agendaScheduler.testDeliverJoke(chatId);
     } catch (error) {
-      console.error(
-        `[JokeScheduler] ❌ Error delivering joke to user ${chatId}:`,
-        error
-      );
+      console.error('[JokeScheduler] Error in test delivery:', error);
+      throw error;
     }
   }
 
@@ -147,12 +85,12 @@ class JokeScheduler {
    * @param chatId - User's chat ID
    * @param newFrequency - New frequency in minutes
    */
-  async updateUserSchedule(chatId: number, newFrequency: number): Promise<void> {
+  async updateUserSchedule(
+    chatId: number,
+    newFrequency: number
+  ): Promise<void> {
     try {
-      this.scheduleUserJokes(chatId, newFrequency);
-      console.log(
-        `[JokeScheduler] Updated schedule for user ${chatId} to every ${newFrequency} minute(s)`
-      );
+      await this.agendaScheduler.updateUserSchedule(chatId, newFrequency);
     } catch (error) {
       console.error(
         `[JokeScheduler] Error updating schedule for user ${chatId}:`,
@@ -164,21 +102,29 @@ class JokeScheduler {
 
   /**
    * Stop all scheduled jobs
+   * Gracefully shuts down Agenda
    */
-  stopAll(): void {
-    for (const [, scheduled] of this.scheduledJobs) {
-      scheduled.job.stop();
+  async stopAll(): Promise<void> {
+    try {
+      await this.agendaScheduler.stop();
+    } catch (error) {
+      console.error('[JokeScheduler] Error stopping scheduler:', error);
+      throw error;
     }
-
-    this.scheduledJobs.clear();
-    console.log('[JokeScheduler] All scheduled jobs stopped');
   }
 
   /**
    * Get number of active schedules
    */
-  getActiveScheduleCount(): number {
-    return this.scheduledJobs.size;
+  async getActiveScheduleCount(): Promise<number> {
+    return await this.agendaScheduler.getActiveScheduleCount();
+  }
+
+  /**
+   * Get job status for debugging
+   */
+  async getStatus(): Promise<void> {
+    await this.agendaScheduler.getStatus();
   }
 }
 

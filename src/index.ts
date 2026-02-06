@@ -73,12 +73,13 @@ app.get(
 app.get(
   '/status',
   createRateLimitMiddleware(RateLimitConfig.api.status),
-  (_req, res) => {
+  async (_req, res) => {
     try {
+      const activeSchedules = await jokeScheduler?.getActiveScheduleCount() || 0;
       res.status(200).json({
         bot: 'running',
         scheduler: 'running',
-        activeUsers: jokeScheduler?.getActiveScheduleCount() || 0,
+        activeUsers: activeSchedules,
         timestamp: new Date().toISOString(),
       });
     } catch (error) {
@@ -98,7 +99,7 @@ async function gracefulShutdown(): Promise<void> {
     rateLimiterManager.cleanupAll();
 
     if (jokeScheduler) {
-      jokeScheduler.stopAll();
+      await jokeScheduler.stopAll();
     }
 
     if (botService) {

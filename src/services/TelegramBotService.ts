@@ -43,12 +43,15 @@ class TelegramBotService {
     // /test command (for debugging)
     this.bot.onText(/\/test/, (msg: TelegramBot.Message) => this.handleTest(msg));
 
+    // /jobstatus command (for debugging)
+    this.bot.onText(/\/jobstatus/, (msg: TelegramBot.Message) => this.handleJobStatus(msg));
+
     // Unknown command handler (catch-all for slash commands)
     this.bot.onText(/^\/(.+)/, (msg: TelegramBot.Message, match: RegExpExecArray | null) => {
       if (match && match[1]) {
         const command = match[1];
         // Check if it's a known command
-        const knownCommands = ['start', 'enable', 'disable', 'frequency', 'status', 'help', 'test'];
+        const knownCommands = ['start', 'enable', 'disable', 'frequency', 'status', 'help', 'test', 'jobstatus'];
         if (!knownCommands.some(cmd => command.startsWith(cmd))) {
           this.handleUnknownCommand(msg, command);
         }
@@ -59,8 +62,7 @@ class TelegramBotService {
     this.bot.on('polling_error', (error: Error) => {
       console.error('[TelegramBot] Polling error:', error);
     });
-
-    console.log('[TelegramBot] Bot handlers initialized');
+    // Bot handlers initialized
   }
 
   /**
@@ -118,8 +120,6 @@ class TelegramBotService {
 
       const welcomeMessage = `Welcome to Joke Bot! 🎉\n\nI'll send you jokes at regular intervals.\n\nUse /help to see available commands.`;
       await this.bot.sendMessage(chatId, welcomeMessage);
-
-      console.log(`[TelegramBot] User started bot: ${chatId}`);
     } catch (error) {
       console.error('[TelegramBot] Error in /start handler:', error);
       await this.bot.sendMessage(
@@ -143,11 +143,10 @@ class TelegramBotService {
 
       const user = await UserService.enableJokes(chatId);
 
-      // Schedule jokes for the user
-      this.jokeScheduler.scheduleUserJokes(chatId, user.frequency);
+      // Schedule jokes for the user (async)
+      await this.jokeScheduler.scheduleUserJokes(chatId, user.frequency);
 
       await this.bot.sendMessage(chatId, '✅ Joke delivery enabled! You will now receive jokes.');
-      console.log(`[TelegramBot] Jokes enabled and scheduled for user ${chatId}`);
     } catch (error) {
       console.error('[TelegramBot] Error in /enable handler:', error);
       await this.bot.sendMessage(
@@ -171,11 +170,10 @@ class TelegramBotService {
 
       await UserService.disableJokes(chatId);
 
-      // Cancel scheduled jokes for the user
-      this.jokeScheduler.cancelUserSchedule(chatId);
+      // Cancel scheduled jokes for the user (async)
+      await this.jokeScheduler.cancelUserSchedule(chatId);
 
       await this.bot.sendMessage(chatId, '⏸️ Joke delivery paused. Use /enable to resume.');
-      console.log(`[TelegramBot] Jokes disabled and schedule cancelled for user ${chatId}`);
     } catch (error) {
       console.error('[TelegramBot] Error in /disable handler:', error);
       await this.bot.sendMessage(
@@ -220,14 +218,13 @@ class TelegramBotService {
 
       await UserService.setFrequency(chatId, frequency);
 
-      // Reschedule jokes with the new frequency
-      this.jokeScheduler.scheduleUserJokes(chatId, frequency);
+      // Reschedule jokes with the new frequency (async)
+      await this.jokeScheduler.scheduleUserJokes(chatId, frequency);
 
       await this.bot.sendMessage(
         chatId,
         `✅ Frequency updated! You will receive jokes every ${frequency} minute(s).`
       );
-      console.log(`[TelegramBot] Frequency updated and rescheduled for user ${chatId}: ${frequency} minutes`);
     } catch (error) {
       console.error('[TelegramBot] Error in /frequency handler:', error);
       await this.bot.sendMessage(
@@ -282,7 +279,7 @@ class TelegramBotService {
         return;
       }
 
-      const helpMessage = `📋 Available Commands:\n\n/start - Start the bot\n/enable - Resume joke delivery\n/disable - Pause joke delivery\n/frequency <n> - Set frequency (1-1440 minutes)\n/status - Check your settings\n/test - Get a joke NOW (for testing)\n/help - Show this message`;
+      const helpMessage = `📋 Available Commands:\n\n/start - Start the bot\n/enable - Resume joke delivery\n/disable - Pause joke delivery\n/frequency <n> - Set frequency (1-1440 minutes)\n/status - Check your settings\n/test - Get a joke NOW (for testing)\n/jobstatus - Check job queue status (debug)\n/help - Show this message`;
 
       await this.bot.sendMessage(chatId, helpMessage);
     } catch (error) {
@@ -304,12 +301,8 @@ class TelegramBotService {
 
       await this.bot.sendMessage(chatId, '🧪 Testing joke delivery... please wait...');
       
-      console.log(`[TelegramBot] 🧪 Test command triggered by user ${chatId}`);
-      
       // Immediately deliver a test joke
       await this.jokeScheduler.testDeliverJoke(chatId);
-      
-      console.log(`[TelegramBot] ✅ Test completed for user ${chatId}`);
     } catch (error) {
       console.error('[TelegramBot] Error in /test handler:', error);
       await this.bot.sendMessage(
@@ -324,12 +317,39 @@ class TelegramBotService {
    */
   private async handleUnknownCommand(msg: TelegramBot.Message, command: string): Promise<void> {
     try {
-      const unknownCommandMessage = `❌ Unknown command: /${command}\n\n📋 Available Commands:\n\n/start - Start the bot\n/enable - Resume joke delivery\n/disable - Pause joke delivery\n/frequency <n> - Set frequency (1-1440 minutes)\n/status - Check your settings\n/test - Get a joke NOW (for testing)\n/help - Show all commands\n\nUse /help to see available commands.`;
+      const unknownCommandMessage = `❌ Unknown command: /${command}\n\n📋 Available Commands:\n\n/start - Start the bot\n/enable - Resume joke delivery\n/disable - Pause joke delivery\n/frequency <n> - Set frequency (1-1440 minutes)\n/status - Check your settings\n/test - Get a joke NOW (for testing)\n/jobstatus - Check job queue status (debug)\n/help - Show all commands\n\nUse /help to see available commands.`;
 
       await this.bot.sendMessage(msg.chat.id, unknownCommandMessage);
-      console.log(`[TelegramBot] Unknown command received from user ${msg.chat.id}: /${command}`);
     } catch (error) {
       console.error('[TelegramBot] Error in unknown command handler:', error);
+    }
+  }
+
+  /**
+   * Handle /jobstatus command - show job status for debugging
+   */
+  private async handleJobStatus(msg: TelegramBot.Message): Promise<void> {
+    try {
+      const chatId = msg.chat.id;
+
+      // Check rate limit
+      if (!(await this.checkRateLimit(chatId, 'status'))) {
+        return;
+      }
+
+      await this.bot.sendMessage(chatId, '📊 Checking job status in database...');
+      
+      // Get Agenda status through AgendaScheduler
+      const agendaScheduler = this.jokeScheduler['agendaScheduler'];
+      await agendaScheduler.getStatus();
+      
+      await this.bot.sendMessage(chatId, '✅ Job status logged to console. Check server logs for details.');
+    } catch (error) {
+      console.error('[TelegramBot] Error in /jobstatus handler:', error);
+      await this.bot.sendMessage(
+        msg.chat.id,
+        '❌ Job status check failed. Check console for details.'
+      );
     }
   }
 
@@ -343,7 +363,6 @@ class TelegramBotService {
       await this.bot.sendMessage(chatId, `😂 *Joke time!*\n\n${joke}`, {
         parse_mode: 'Markdown',
       });
-      console.log(`[TelegramBot] Joke sent to user: ${chatId}`);
     } catch (error) {
       console.error(`[TelegramBot] Failed to send joke to ${chatId}:`, error);
       throw error;
@@ -362,7 +381,6 @@ class TelegramBotService {
    */
   async stop(): Promise<void> {
     await this.bot.stopPolling();
-    console.log('[TelegramBot] Bot stopped');
   }
 }
 

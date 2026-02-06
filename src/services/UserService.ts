@@ -15,7 +15,6 @@ class UserService {
         isEnabled: true,
         frequency: 1,
       });
-      console.log(`[UserService] New user created: ${chatId}`);
     }
 
     return user;
@@ -51,7 +50,6 @@ class UserService {
       throw new Error(`User with chatId ${chatId} not found`);
     }
 
-    console.log(`[UserService] Frequency updated for user ${chatId}: ${frequency} minutes`);
     return user as unknown as IUser;
   }
 
@@ -71,7 +69,6 @@ class UserService {
       throw new Error(`User with chatId ${chatId} not found`);
     }
 
-    console.log(`[UserService] Jokes enabled for user ${chatId}`);
     return user as unknown as IUser;
   }
 
@@ -91,7 +88,6 @@ class UserService {
       throw new Error(`User with chatId ${chatId} not found`);
     }
 
-    console.log(`[UserService] Jokes disabled for user ${chatId}`);
     return user as unknown as IUser;
   }
 
@@ -129,9 +125,6 @@ class UserService {
    */
   async deleteUser(chatId: number): Promise<IUser | null> {
     const user = await User.findOneAndDelete({ chatId });
-    if (user) {
-      console.log(`[UserService] User deleted: ${chatId}`);
-    }
     return (user as unknown as IUser) || null;
   }
 }
