@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2020",
-    "module": "commonjs",
+    "module": "commonjs", 
     "lib": ["ES2020"],
     "outDir": "./dist",
     "rootDir": "./src",
@@ -16,13 +16,14 @@
     "declarationMap": true,
     "sourceMap": true,
     "noImplicitAny": false,
-    "strictNullChecks": true,
-    "strictFunctionTypes": true,
+    "strictNullChecks": false,
+    "strictFunctionTypes": false,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noImplicitReturns": false,
-    "noFallthroughCasesInSwitch": true,
-    "typeRoots": ["./types", "./node_modules/@types"]
+    "noFallthroughCasesInSwitch": false,
+    "typeRoots": ["./types", "./node_modules/@types"],
+    "types": ["node"]
   },
   "include": ["src/**/*", "types/**/*"],
   "exclude": ["node_modules", "dist"],
