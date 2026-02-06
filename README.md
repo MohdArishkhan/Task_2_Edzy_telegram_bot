@@ -1,29 +1,41 @@
 # Telegram Joke Bot 
 
-A robust Telegram bot that delivers jokes to users at configurable intervals. Built with Node.js, TypeScript, Express, MongoDB, and Telegram Bot API.
+A robust, enterprise-grade Telegram bot that delivers jokes to users at configurable intervals. Built with Node.js, TypeScript, Express, MongoDB, Agenda job scheduler, and comprehensive rate limiting.
 
 ## Overview
 
-The Telegram Joke Bot is a full-stack application that manages user subscriptions and automatically delivers jokes on a schedule. Users can enable/disable joke delivery, customize the frequency of incoming jokes (1-1440 minutes), and check their current settings.
+The Telegram Joke Bot is a production-ready application that manages user subscriptions and automatically delivers jokes on a persistent schedule. Features enterprise-level rate limiting, job persistence across server restarts, and comprehensive debugging capabilities.
 
 ## Features
 
 ✨ **Core Features:**
-- 🤖 Telegram bot that responds to commands
-- 📅 Automatic joke scheduling at user-defined intervals
-- 💾 MongoDB persistence for user preferences
+- 🤖 Telegram bot with rate-limited command processing
+- 📅 Persistent joke scheduling with MongoDB-backed job storage
+- 🛡️ Enterprise-grade rate limiting with sliding window algorithm
+- 💾 MongoDB persistence for user preferences and job queues
 - ⚙️ Configurable joke delivery frequency (1 to 1440 minutes)
-- 🔄 Enable/disable joke delivery on demand
-- ✅ Health check and status endpoints
-- 📊 Real-time active schedules monitoring
+- 🔄 Enable/disable joke delivery with automatic job management
+- ✅ Health check and status endpoints with rate limiting
+- 📊 Real-time job monitoring and debugging capabilities
+- 🔄 Server restart resilience - jobs persist across restarts
+- ⚡ Concurrent job processing with configurable limits
 
 ✅ **User Commands:**
 - `/start` - Initialize bot and create user account
-- `/enable` - Resume joke delivery
-- `/disable` - Pause joke delivery
+- `/enable` - Resume joke delivery with persistent scheduling
+- `/disable` - Pause joke delivery and cancel active jobs
 - `/frequency <n>` - Set delivery interval (1-1440 minutes)
 - `/status` - View current settings and last joke sent
+- `/test` - Get an immediate joke for testing
+- `/jobstatus` - View job queue status (debugging)
 - `/help` - Display available commands
+
+🛡️ **Rate Limiting Features:**
+- Telegram command rate limiting (5 requests per 5 seconds per user)
+- API endpoint protection (30 requests per minute per IP)
+- Sliding window algorithm for accurate rate calculation
+- Automatic cleanup of expired rate limit data
+- Configurable rate limits per endpoint and command type
 
 ## Technologies Used
 
@@ -35,8 +47,8 @@ The Telegram Joke Bot is a full-stack application that manages user subscription
 | **Express** | Web server framework | ^4.18.2 |
 | **MongoDB** | NoSQL database | Cloud Atlas |
 | **Mongoose** | MongoDB ODM | ^7.6.3 |
+| **Agenda** | MongoDB-based job scheduler | ^5.0.0 |
 | **node-telegram-bot-api** | Telegram bot SDK | ^0.63.0 |
-| **node-cron** | Job scheduling | ^3.0.3 |
 | **axios** | HTTP client | ^1.6.0 |
 | **dotenv** | Environment variables | ^16.3.1 |
 
@@ -51,22 +63,28 @@ The Telegram Joke Bot is a full-stack application that manages user subscription
 telegram-joke-bot/
 ├── src/
 │   ├── config/
-│   │   └── database.ts          # MongoDB connection setup
+│   │   ├── database.ts              # MongoDB connection setup
+│   │   └── rateLimitConfig.ts       # Rate limiting configuration
 │   ├── models/
-│   │   └── User.ts              # Mongoose User schema & interface
+│   │   └── User.ts                  # Mongoose User schema & interface
 │   ├── services/
-│   │   ├── JokeService.ts       # Fetch & format jokes from external API
-│   │   ├── JokeScheduler.ts     # Cron-based scheduling system
-│   │   ├── TelegramBotService.ts# Telegram bot command handlers
-│   │   └── UserService.ts       # User CRUD operations
-│   └── index.ts                 # Application entry point & Express setup
+│   │   ├── AgendaScheduler.ts       # MongoDB-backed persistent job scheduler
+│   │   ├── JokeService.ts           # Fetch & format jokes from external API
+│   │   ├── JokeScheduler.ts         # Wrapper around AgendaScheduler
+│   │   ├── TelegramBotService.ts    # Rate-limited Telegram bot handlers
+│   │   └── UserService.ts           # User CRUD operations
+│   ├── utils/
+│   │   ├── RateLimiter.ts           # Core rate limiting engine
+│   │   ├── RateLimiterManager.ts    # Centralized rate limiter management
+│   │   └── rateLimitMiddleware.ts   # Express rate limiting middleware
+│   └── index.ts                     # Application entry point & Express setup
 ├── types/
-│   └── node-telegram-bot-api.d.ts # TypeScript declarations for telegram API
-├── .env                         # Environment variables (not in git)
-├── .env.example                 # Environment template
-├── package.json                 # Dependencies & scripts
-├── tsconfig.json                # TypeScript configuration
-└── README.md                    # This file
+│   └── node-telegram-bot-api.d.ts   # TypeScript declarations for telegram API
+├── .env                             # Environment variables (not in git)
+├── .env.example                     # Environment template
+├── package.json                     # Dependencies & scripts
+├── tsconfig.json                    # TypeScript configuration
+└── README.md                        # This file
 ```
 
 ## Prerequisites
@@ -176,33 +194,52 @@ Response:
 ## Architecture & Components
 
 ### 1. **TelegramBotService**
-- Handles all Telegram bot interactions
-- Processes `/start`, `/enable`, `/disable`, `/frequency`, `/status`, `/help` commands
-- Manages message sending to users
-- Error handling and logging
+- Handles all Telegram bot interactions with rate limiting
+- Processes `/start`, `/enable`, `/disable`, `/frequency`, `/status`, `/test`, `/jobstatus`, `/help` commands
+- Rate-limited command processing (5 requests per 5 seconds per user)
+- Manages message sending to users with error handling
+- Integrated with AgendaScheduler for job management
 
-### 2. **JokeScheduler**
-- Uses `node-cron` to schedule joke delivery
-- Maintains active schedules for each user
-- Dynamically creates/updates/cancels cron jobs
-- Integrates with JokeService for content
+### 2. **AgendaScheduler**
+- MongoDB-backed persistent job scheduler using Agenda
+- Jobs survive server restarts and crashes
+- Configurable job processing (every 10 seconds)
+- Automatic duplicate job prevention
+- Event-driven job monitoring and error handling
+- Supports up to 20 concurrent job executions
 
-### 3. **JokeService**
+### 3. **JokeScheduler**
+- Wrapper around AgendaScheduler maintaining API compatibility
+- Handles job lifecycle management (create, update, cancel)
+- Integrates with UserService for enabled user management
+- Provides testing and debugging capabilities
+
+### 4. **Rate Limiting System**
+- **RateLimiter**: Sliding window algorithm implementation
+- **RateLimiterManager**: Centralized management of multiple rate limiters
+- **rateLimitMiddleware**: Express middleware for API protection
+- **rateLimitConfig**: Configurable limits per endpoint and command
+- Automatic memory cleanup and optimization
+
+### 5. **JokeService**
 - Fetches random jokes from Official Joke API
 - Formats jokes for readability
 - Error handling for API failures
-- Caches formatted jokes (recommended for improvement)
+- Consistent joke delivery format
 
-### 4. **UserService**
+### 6. **UserService**
 - CRUD operations for user management
 - Validates frequency range (1-1440 minutes)
 - Tracks last joke sent timestamp
 - Fetches all enabled users for scheduling
 
 ### 5. **Database Layer**
-- MongoDB Atlas cloud database
+- MongoDB Atlas cloud database with two collections:
+  - **users**: User preferences and settings
+  - **agenda_jobs**: Persistent job storage for scheduling
 - Mongoose schemas with TypeScript types
 - Indexed chatId for fast lookups
+- Automatic job recovery on server restart
 - Timestamps for auditing (createdAt, updatedAt)
 
 ## Testing Guide
@@ -219,12 +256,15 @@ Open Telegram and search for your bot → Send commands
 | Scenario | Steps | Expected Result |
 |----------|-------|-----------------|
 | User Registration | Send `/start` | User created in DB, welcome message |
-| Enable Jokes | Send `/enable` | Confirmation message, scheduler starts |
-| Set Frequency | Send `/frequency 5` | Joke scheduled every 5 minutes |
-| Disable Jokes | Send `/disable` | Confirmation, scheduler paused |
+| Enable Jokes | Send `/enable` | Confirmation message, persistent job created |
+| Set Frequency | Send `/frequency 5` | Old jobs canceled, new job scheduled every 5 minutes |
+| Disable Jokes | Send `/disable` | Confirmation, all jobs canceled |
 | Check Status | Send `/status` | Display frequency, last joke time |
+| Test Immediate Joke | Send `/test` | Immediate joke delivery |
+| Job Status | Send `/jobstatus` | Job queue information in console |
+| Rate Limiting | Send 6+ commands quickly | Rate limit error after 5th command |
 | Invalid Frequency | Send `/frequency 2000` | Error: must be 1-1440 |
-| Get Help | Send `/help` | List all commands |
+| Get Help | Send `/help` | List all commands including new debug commands |
 
 ### 3. HTTP Endpoint Testing
 Using curl or Postman:
@@ -238,165 +278,51 @@ curl http://localhost:3000/status
 
 ### 4. Database Validation
 Connect to MongoDB Atlas and verify:
-- Users collection created
-- Documents have correct structure
-- Timestamps updated correctly
+- **users** collection with user documents
+- **agenda_jobs** collection with scheduled jobs
+- Documents have correct structure and timestamps
+- Jobs persist across server restarts
+- Rate limiting data automatically cleaned up
 
 ## Development Workflow
 
 ### Code Organization Best Practices
 1. **Services** - Business logic separated from controllers
-2. **Models** - Database schemas with TypeScript interfaces
+2. **Models** - Database schemas with TypeScript interfaces  
 3. **Config** - Centralized configuration management
-4. **Error Handling** - Try-catch blocks with logging
-5. **Types** - Full TypeScript coverage for type safety
+4. **Utils** - Reusable utilities (rate limiting, etc.)
+5. **Error Handling** - Try-catch blocks with structured logging
+6. **Types** - Full TypeScript coverage for type safety
 
-### Logging
-All services include structured logging:
-```
-[TelegramBot] User started bot: 123456
-[JokeScheduler] Scheduled jokes for user 123456 every 5 minutes
-[JokeService] Fetched random joke successfully
-```
-
-### Database Transactions
-For future improvements, consider MongoDB transactions when:
-- Updating user + scheduling in one operation
-- Batch enabling/disabling users
-- Maintaining consistency across operations
-
-## Future Improvements with BullMQ
-
-**BullMQ** is a Node.js library for queue processing and job scheduling. Below are recommended improvements:
-
-### 1. **Replace node-cron with BullMQ Job Queues**
+### Rate Limiting Configuration
 ```typescript
-// Current: node-cron (in-memory scheduling)
-// Problem: Loses schedules on server restart, not scalable
-
-// Improvement: BullMQ with Redis
-import { Queue } from 'bullmq';
-
-const jokeQueue = new Queue('jokes', { connection: redisConnection });
-
-// Schedule recurring jobs with persistence
-await jokeQueue.add(
-  'send-joke',
-  { chatId: 123456 },
-  { repeat: { pattern: '*/5 * * * *' } } // Every 5 minutes
-);
-```
-
-### 2. **Resilient Joke Delivery**
-```typescript
-// Current: Synchronous, no retry logic
-// Improvement: BullMQ with automatic retries and exponential backoff
-
-jokeQueue.process(async (job) => {
-  try {
-    await sendJokeToUser(job.data.chatId);
-  } catch (error) {
-    throw error; // BullMQ will retry automatically
+// Configurable rate limits in rateLimitConfig.ts
+export const rateLimitConfig = {
+  api: {
+    health: { maxRequests: 30, windowMs: 60000 }, // 30 per minute
+    status: { maxRequests: 30, windowMs: 60000 }   // 30 per minute
+  },
+  telegram: {
+    start: { maxRequests: 5, windowMs: 5000 },     // 5 per 5 seconds
+    enable: { maxRequests: 5, windowMs: 5000 },    // 5 per 5 seconds
+    // ... other commands
   }
-});
-
-// Configuration: 3 retries with exponential backoff
-await jokeQueue.add(
-  'send-joke',
-  { chatId: 123456 },
-  { attempts: 3, backoff: { type: 'exponential', delay: 2000 } }
-);
+};
 ```
 
-### 3. **Background Job Processing**
-```typescript
-// Separate long-running tasks from request handling
-// Example: Bulk user operations, analytics, cleanup
+### Job Persistence
+Agenda stores jobs in MongoDB for persistence:
+- Jobs survive server crashes and restarts
+- Automatic job recovery on application startup
+- Configurable job processing intervals (10 seconds)
+- Event-driven job monitoring and error handling
 
-const bulkQueue = new Queue('bulk-operations', { connection: redis });
-
-// Queue bulk enable/disable operations
-bulkQueue.add('bulk-enable', { userIds: [...] });
-bulkQueue.add('bulk-disable', { userIds: [...] });
-```
-
-### 4. **Monitoring & Observability**
-```typescript
-// Real-time job monitoring
-jokeQueue.on('completed', (job) => {
-  console.log(`Joke delivered to user ${job.data.chatId}`);
-});
-
-jokeQueue.on('failed', (job, err) => {
-  console.error(`Failed to deliver joke: ${err.message}`);
-});
-
-// Dashboard access via BullMQ UI
-import { createBullBoard } from '@bull-board/api';
-import { ExpressAdapter } from '@bull-board/express';
-
-const serverAdapter = new ExpressAdapter();
-createBullBoard({ queues: [jokeQueue], serverAdapter });
-app.use('/admin/queues', serverAdapter.getRouter());
-```
-
-### 5. **Distributed Architecture Support**
-```typescript
-// Current: Single server, all jobs in memory
-// Improvement: Scale to multiple servers with Redis
-
-// Benefits:
-// - Jobs persist in Redis
-// - Multiple workers process jobs
-// - High availability and fault tolerance
-// - Load balancing across servers
-
-const worker = new Worker('jokes', jobProcessor, {
-  connection: redisConnection,
-  concurrency: 10 // Process 10 jokes simultaneously
-});
-```
-
-### 6. **Priority-Based Delivery**
-```typescript
-// Different priority levels for different user tiers
-await jokeQueue.add(
-  'send-joke',
-  { chatId: 123456, tier: 'premium' },
-  { priority: 1 } // High priority for premium users
-);
-
-await jokeQueue.add(
-  'send-joke',
-  { chatId: 654321, tier: 'free' },
-  { priority: 5 } // Lower priority for free users
-);
-```
-
-### 7. **Scheduled Cleanup Jobs**
-```typescript
-// Remove old user data, unused schedules
-const cleanupQueue = new Queue('maintenance', { connection: redis });
-
-await cleanupQueue.add(
-  'cleanup-old-users',
-  { olderThanDays: 90 },
-  { repeat: { pattern: '0 2 * * *' } } // 2 AM daily
-);
-```
-
-### Installation (When Ready)
-```bash
-npm install bullmq redis
-```
-
-### Setup Redis
-```bash
-# Docker
-docker run -d -p 6379:6379 redis:latest
-
-# Or use Redis Cloud (free tier available)
-```
+### Architecture Benefits
+- **Scalability**: Rate limiting prevents abuse
+- **Reliability**: Persistent jobs ensure delivery
+- **Observability**: Comprehensive logging and monitoring
+- **Maintainability**: Clean separation of concerns
+- **Type Safety**: Full TypeScript implementation
 
 ---
 
@@ -406,9 +332,26 @@ docker run -d -p 6379:6379 redis:latest
 |-------|----------|
 | Bot not responding | Check `TELEGRAM_BOT_TOKEN` in `.env` |
 | MongoDB connection fails | Verify connection string and IP whitelist |
+| Jobs not executing | Check MongoDB `agenda_jobs` collection for scheduled jobs |
+| Rate limiting issues | Commands limited to 5 per 5 seconds per user |
 | Jokes not scheduled | Check user is enabled and frequency is valid (1-1440) |
 | TypeScript errors | Run `npm install` and clear node_modules if needed |
 | Port 3000 in use | Change `PORT` in `.env` or kill process on port |
+| Jobs executing multiple times | Restart server - old jobs should be cleaned up automatically |
+| /jobstatus command not working | Check console output for job queue information |
+
+### Debugging Commands
+- Use `/test` for immediate joke delivery testing
+- Use `/jobstatus` to check job queue in database
+- Monitor console logs for job execution events
+- Check MongoDB `agenda_jobs` collection directly
+
+### Performance Optimization
+- Agenda processes jobs every 10 seconds
+- Maximum 20 concurrent job executions
+- Rate limiting prevents command spam
+- Automatic cleanup of expired rate limit data
+- Jobs are automatically retried on failure
 
 ## Contributing
 
