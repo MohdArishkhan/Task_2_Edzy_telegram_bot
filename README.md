@@ -1,4 +1,4 @@
-# Telegram Joke Bot 
+# Task 2 – Telegram Joke Bot
 
 A robust, enterprise-grade Telegram bot that delivers jokes to users at configurable intervals. Built with Node.js, TypeScript, Express, MongoDB, Agenda job scheduler, and comprehensive rate limiting.
 
