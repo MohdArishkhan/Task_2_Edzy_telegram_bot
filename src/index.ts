@@ -11,7 +11,7 @@ import RateLimitConfig from './config/rateLimitConfig';
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
 if (!TELEGRAM_BOT_TOKEN) {
