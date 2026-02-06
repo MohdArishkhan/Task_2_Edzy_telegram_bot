@@ -1,4 +1,4 @@
-# Telegram Joke Bot 😂
+# Telegram Joke Bot 
 
 A robust Telegram bot that delivers jokes to users at configurable intervals. Built with Node.js, TypeScript, Express, MongoDB, and Telegram Bot API.
 
