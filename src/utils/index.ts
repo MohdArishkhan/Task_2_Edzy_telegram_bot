@@ -9,8 +9,6 @@
 export {
   RateLimiter,
   RateLimiterPresets,
-  RateLimiterManager,
-  rateLimiterManager,
 } from './RateLimiter';
 
 export type {
@@ -29,5 +27,5 @@ export { RateLimiterManager } from './RateLimiterManager';
 
 export { default as RateLimitConfig } from '../config/rateLimitConfig';
 
-// Re-export manager for convenience
+// Export manager instance for convenience
 export { rateLimiterManager } from './RateLimiterManager';
