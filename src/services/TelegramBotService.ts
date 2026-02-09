@@ -20,37 +20,37 @@ class TelegramBotService {
    * Setup all bot command handlers
    */
   private setupHandlers(): void {
-    // /start command
-    this.bot.onText(/\/start/, (msg: TelegramBot.Message) => this.handleStart(msg));
+    this.bot.onText(/^\/start$/i, (msg: TelegramBot.Message) => this.handleStart(msg));
+    this.bot.onText(/^start$/i, (msg: TelegramBot.Message) => this.handleStart(msg));
 
-    // /enable command
-    this.bot.onText(/\/enable/, (msg: TelegramBot.Message) => this.handleEnable(msg));
+    this.bot.onText(/^\/enable$/i, (msg: TelegramBot.Message) => this.handleEnable(msg));
+    this.bot.onText(/^enable$/i, (msg: TelegramBot.Message) => this.handleEnable(msg));
 
-    // /disable command
-    this.bot.onText(/\/disable/, (msg: TelegramBot.Message) => this.handleDisable(msg));
+    this.bot.onText(/^\/disable$/i, (msg: TelegramBot.Message) => this.handleDisable(msg));
+    this.bot.onText(/^disable$/i, (msg: TelegramBot.Message) => this.handleDisable(msg));
 
-    // /frequency command
-    this.bot.onText(/\/frequency\s(\d+)/, (msg: TelegramBot.Message, match: RegExpExecArray | null) =>
+    this.bot.onText(/^\/frequency\s+(\d+)$/i, (msg: TelegramBot.Message, match: RegExpExecArray | null) =>
+      this.handleFrequency(msg, match)
+    );
+    this.bot.onText(/^frequency\s+(\d+)$/i, (msg: TelegramBot.Message, match: RegExpExecArray | null) =>
       this.handleFrequency(msg, match)
     );
 
-    // /status command
-    this.bot.onText(/\/status/, (msg: TelegramBot.Message) => this.handleStatus(msg));
+    this.bot.onText(/^\/status$/i, (msg: TelegramBot.Message) => this.handleStatus(msg));
+    this.bot.onText(/^status$/i, (msg: TelegramBot.Message) => this.handleStatus(msg));
 
-    // /help command
-    this.bot.onText(/\/help/, (msg: TelegramBot.Message) => this.handleHelp(msg));
+    this.bot.onText(/^\/help$/i, (msg: TelegramBot.Message) => this.handleHelp(msg));
+    this.bot.onText(/^help$/i, (msg: TelegramBot.Message) => this.handleHelp(msg));
 
-    // /test command (for debugging)
-    this.bot.onText(/\/test/, (msg: TelegramBot.Message) => this.handleTest(msg));
+    this.bot.onText(/^\/test$/i, (msg: TelegramBot.Message) => this.handleTest(msg));
+    this.bot.onText(/^test$/i, (msg: TelegramBot.Message) => this.handleTest(msg));
 
-    // /jobstatus command (for debugging)
-    this.bot.onText(/\/jobstatus/, (msg: TelegramBot.Message) => this.handleJobStatus(msg));
+    this.bot.onText(/^\/jobstatus$/i, (msg: TelegramBot.Message) => this.handleJobStatus(msg));
+    this.bot.onText(/^jobstatus$/i, (msg: TelegramBot.Message) => this.handleJobStatus(msg));
 
-    // Unknown command handler (catch-all for slash commands)
     this.bot.onText(/^\/(.+)/, (msg: TelegramBot.Message, match: RegExpExecArray | null) => {
       if (match && match[1]) {
-        const command = match[1];
-        // Check if it's a known command
+        const command = match[1].toLowerCase();
         const knownCommands = ['start', 'enable', 'disable', 'frequency', 'status', 'help', 'test', 'jobstatus'];
         if (!knownCommands.some(cmd => command.startsWith(cmd))) {
           this.handleUnknownCommand(msg, command);
@@ -58,11 +58,38 @@ class TelegramBotService {
       }
     });
 
+    this.bot.on('message', (msg: TelegramBot.Message) => {
+      if (msg.text && !msg.text.startsWith('/') && !this.isCommandMessage(msg.text)) {
+        this.handleUnrecognizedMessage(msg);
+      }
+    });
+
     // Error handler
     this.bot.on('polling_error', (error: Error) => {
       console.error('[TelegramBot] Polling error:', error);
     });
-    // Bot handlers initialized
+  }
+
+  /**
+   * Check if a text message matches any known command pattern
+   * @param text - Message text to check
+   * @returns true if it matches a command pattern
+   */
+  private isCommandMessage(text: string): boolean {
+    const normalizedText = text.toLowerCase().trim();
+    const knownCommands = ['start', 'enable', 'disable', 'status', 'help', 'test', 'jobstatus'];
+    
+    // Check if it's an exact match to any command (case-insensitive)
+    if (knownCommands.includes(normalizedText)) {
+      return true;
+    }
+    
+    // Check if it's a frequency command pattern
+    if (/^frequency\s+\d+$/i.test(normalizedText)) {
+      return true;
+    }
+    
+    return false;
   }
 
   /**
@@ -141,17 +168,29 @@ class TelegramBotService {
         return;
       }
 
+      // Check current user state
+      const currentUser = await UserService.getUserByChatId(chatId);
+      if (!currentUser) {
+        await this.bot.sendMessage(chatId, '❌ User not found. Use /start to begin.');
+        return;
+      }
+
+      if (currentUser.isEnabled) {
+        await this.bot.sendMessage(chatId, '✅ Jokes are already enabled! You are receiving jokes every ' + currentUser.frequency + ' minute(s).');
+        return;
+      }
+
       const user = await UserService.enableJokes(chatId);
 
       // Schedule jokes for the user (async)
       await this.jokeScheduler.scheduleUserJokes(chatId, user.frequency);
 
-      await this.bot.sendMessage(chatId, '✅ Joke delivery enabled! You will now receive jokes.');
+      await this.bot.sendMessage(chatId, '✅ Joke delivery enabled! You will now receive jokes every ' + user.frequency + ' minute(s).');
     } catch (error) {
       console.error('[TelegramBot] Error in /enable handler:', error);
       await this.bot.sendMessage(
         msg.chat.id,
-        '❌ Error enabling jokes. User not found.'
+        '❌ Error enabling jokes. Please try again.'
       );
     }
   }
@@ -168,6 +207,18 @@ class TelegramBotService {
         return;
       }
 
+      // Check current user state
+      const currentUser = await UserService.getUserByChatId(chatId);
+      if (!currentUser) {
+        await this.bot.sendMessage(chatId, '❌ User not found. Use /start to begin.');
+        return;
+      }
+
+      if (!currentUser.isEnabled) {
+        await this.bot.sendMessage(chatId, '⏸️ Jokes are already disabled! Use /enable to resume joke delivery.');
+        return;
+      }
+
       await UserService.disableJokes(chatId);
 
       // Cancel scheduled jokes for the user (async)
@@ -178,7 +229,7 @@ class TelegramBotService {
       console.error('[TelegramBot] Error in /disable handler:', error);
       await this.bot.sendMessage(
         msg.chat.id,
-        '❌ Error disabling jokes. User not found.'
+        '❌ Error disabling jokes. Please try again.'
       );
     }
   }
@@ -279,7 +330,7 @@ class TelegramBotService {
         return;
       }
 
-      const helpMessage = `📋 Available Commands:\n\n/start - Start the bot\n/enable - Resume joke delivery\n/disable - Pause joke delivery\n/frequency <n> - Set frequency (1-1440 minutes)\n/status - Check your settings\n/test - Get a joke NOW (for testing)\n/jobstatus - Check job queue status (debug)\n/help - Show this message`;
+      const helpMessage = `📋 Available Commands:\n\n/start - Start the bot\n/enable - Resume joke delivery\n/disable - Pause joke delivery\n/frequency <n> - Set frequency (1-1440 minutes)\n/status - Check your settings\n/test - Get a joke NOW (for testing)\n/jobstatus - Check job queue status (debug)\n/help - Show this message\n\n💡 Commands work with or without / and are case-insensitive.\nExample: 'ENABLE', 'enable', '/enable' all work the same.`;
 
       await this.bot.sendMessage(chatId, helpMessage);
     } catch (error) {
@@ -317,11 +368,24 @@ class TelegramBotService {
    */
   private async handleUnknownCommand(msg: TelegramBot.Message, command: string): Promise<void> {
     try {
-      const unknownCommandMessage = `❌ Unknown command: /${command}\n\n📋 Available Commands:\n\n/start - Start the bot\n/enable - Resume joke delivery\n/disable - Pause joke delivery\n/frequency <n> - Set frequency (1-1440 minutes)\n/status - Check your settings\n/test - Get a joke NOW (for testing)\n/jobstatus - Check job queue status (debug)\n/help - Show all commands\n\nUse /help to see available commands.`;
+      const unknownCommandMessage = `❌ Unknown command: /${command}\n\n📋 Available Commands:\n\n/start - Start the bot\n/enable - Resume joke delivery\n/disable - Pause joke delivery\n/frequency <n> - Set frequency (1-1440 minutes)\n/status - Check your settings\n/test - Get a joke NOW (for testing)\n/jobstatus - Check job queue status (debug)\n/help - Show all commands\n\n💡 Commands work with or without / and are case-insensitive.\nExample: 'ENABLE', 'enable', '/enable' all work the same.`;
 
       await this.bot.sendMessage(msg.chat.id, unknownCommandMessage);
     } catch (error) {
       console.error('[TelegramBot] Error in unknown command handler:', error);
+    }
+  }
+
+  /**
+   * Handle unrecognized non-command messages
+   */
+  private async handleUnrecognizedMessage(msg: TelegramBot.Message): Promise<void> {
+    try {
+      const helpMessage = `🤔 I didn't understand that message.\n\n📋 Available Commands:\n\n/start - Start the bot\n/enable - Resume joke delivery\n/disable - Pause joke delivery\n/frequency <n> - Set frequency (1-1440 minutes)\n/status - Check your settings\n/help - Show all commands\n\n💡 Commands work with or without / and are case-insensitive.\nExample: 'ENABLE', 'enable', '/enable' all work the same.\n\nType /help for more information.`;
+
+      await this.bot.sendMessage(msg.chat.id, helpMessage);
+    } catch (error) {
+      console.error('[TelegramBot] Error in unrecognized message handler:', error);
     }
   }
 
